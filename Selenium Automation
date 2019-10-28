@@ -1,0 +1,191 @@
+import os
+import re
+import json
+import time
+import math
+import pickle
+import datetime
+import numpy as np
+import pandas as pd
+from os import listdir
+from os.path import isfile, join
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+
+# with open('cred.pickle', 'wb') as f:
+#     pickle.dump(cred, f)
+
+class trade_sim:
+    
+    def __init__(self):
+        self.fullPath = os.getcwd()
+        self.capa = DesiredCapabilities.CHROME
+        self.capa["pageLoadStrategy"] = "none"
+        self.options = Options()
+        self.url_trade_sim = 'https://www.howthemarketworks.com/login'
+        self.trade_station = 'https://www.howthemarketworks.com/trading/equities'
+        self.chromedriver_path = os.path.join(self.fullPath,'webdriver','chromedriver.exe')
+        self.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36'
+        self.options.add_argument(f'user-agent={self.userAgent}')
+        self.browser = webdriver.Chrome(desired_capabilities=self.capa, options=self.options, executable_path=self.chromedriver_path)
+        self.delay = 10 # seconds
+        self.simulation_delay = 300
+    
+    def stock_ticker_list(self):
+        with open('stock_dict_vol100.json') as f:
+            my_dict = json.load(f)
+        ticker_list = sum(my_dict.values(), [])
+        return(ticker_list)
+        
+    def implicit_wait(self, xpath):
+        try:
+            myElem = WebDriverWait(self.browser, self.delay).until(EC.presence_of_element_located((By.XPATH, xpath)))
+            print("item is ready")
+        except TimeoutException:
+            print("Loading took too much time!")
+            
+    def simulation_wait(self, xpath):
+        try:
+            myElem = WebDriverWait(self.browser, self.simulation_delay).until(EC.presence_of_element_located((By.XPATH, xpath)))
+            print("simulation is done")
+        except TimeoutException:
+            print("Loading took too much time!")
+    
+    def close_selenium(self):
+        self.browser.close()
+        
+    def go_web(self, link_address):
+        self.browser.maximize_window()
+        self.browser.get(link_address)
+        
+    def click_item(self, xpath):
+        self.browser.find_element_by_xpath(xpath).click()
+    
+    def login_procedure(self):
+        with open('cred.pickle', 'rb') as f:
+            cred = pickle.load(f)
+        xpaths = {
+            'user' : '//*[@id="UserName"]',
+            'pass' : '//*[@id="Password"]'
+        }
+        self.implicit_wait(xpaths['user'])
+        self.browser.find_element_by_xpath(xpaths['user']).send_keys(cred[0])
+        self.browser.find_element_by_xpath(xpaths['pass']).send_keys(cred[1], Keys.RETURN)
+        
+    def remind_later(self):
+        xpaths = {
+            'remind_later' : '//*[@id="welcomeMessage"]/button/span'
+        }
+        self.implicit_wait(xpaths['remind_later'])
+        self.browser.find_element_by_xpath(xpaths['remind_later']).click()
+        time.sleep(1)
+        
+    def stop_page_load(self, xpath):
+        WebDriverWait(self.browser, 10).until(EC.presence_of_element_located((By.XPATH, xpath)))
+        print('page is ready')
+        time.sleep(5)
+        self.browser.execute_script("window.stop();")
+        
+        
+        
+ self = trade_sim()
+
+# Opening HTML URL 
+self.go_web(self.url_trade_sim)
+self.stop_page_load('//*[@id="UserName"]')
+
+# login procedure 
+self.login_procedure()
+
+# go to trade station
+self.browser.get(self.trade_station)
+self.stop_page_load('//*[@id="tbSymbol"]')
+
+# setting required xpaths 
+xpaths = {
+    'wait_target' : '//*[@id="trade"]/div[1]/div/div[1]/label',
+    'buy' : '//*[@id="ddlOrderSide"]/option[1]',
+    'sell' : '//*[@id="ddlOrderSide"]/option[2]',
+    'short' : '//*[@id="ddlOrderSide"]/option[3]',
+    'cover' : '//*[@id="ddlOrderSide"]/option[4]',
+    'symbol' : '//*[@id="tbSymbol"]',
+    'quantity' : '//*[@id="tbQuantity"]',
+    'market' : '//*[@id="ddlOrderType"]/option[1]',
+    'limit' : '//*[@id="ddlOrderType"]/option[2]',
+    'stop' : '//*[@id="ddlOrderType"]/option[3]',
+    'trailing_stop_$' : '//*[@id="ddlOrderType"]/option[4]',
+    'trailing_stop_%' : '//*[@id="ddlOrderType"]/option[5]',
+    'limit_stop_price' : '//*[@id="tbPrice"]',
+    'good_till_day' : '//*[@id="ddlOrderExpiration"]/option[1]',
+    'good_till_cancel' : '//*[@id="ddlOrderExpiration"]/option[2]',
+    'good_till_date' : '//*[@id="ddlOrderExpiration"]/option[3]',
+    'preview_order' : '//*[@id="btn-preview-order"]',
+    'confirm_order' : '//*[@id="btn-place-order"]',
+    'scroll_path' : '/html/body/div[5]/div[1]/h6/strong',
+    'note' : '//*[@id="trade-notes"]',
+    'total_cost' : '//*[@id="tradebuttons-container"]/div/h3/span',
+    'order_cost' : '//*[@id="tradebuttons-container"]/div/h3/span'
+}
+note = 'quant strategy'
+
+# compiling book positions 
+book_positions = pd.read_csv('book_positions.csv').set_index('Unnamed: 0')
+new_index = [i.replace('.csv_alpha_score', '') for i in book_positions.index.tolist()]
+book_positions.index = new_index
+book_positions.columns = ['num_position', 'dollar_position','last_price']
+book_positions['round_position'] = (book_positions['num_position']).apply(np.floor)
+book_positions = book_positions[book_positions['round_position'] != 0]
+book_positions = book_positions[abs(book_positions['dollar_position']) > 100]
+print(book_positions)
+self.implicit_wait(xpaths['wait_target'])
+
+# go to trade station
+self.browser.get(self.trade_station)
+self.stop_page_load('//*[@id="tbSymbol"]')
+
+# execute book positions 
+for i in range(0, len(book_positions)):
+    indiv = book_positions.iloc[i]
+    ticker =  indiv.name
+    round_position = int(indiv['round_position'])
+    if round_position > 0:
+        self.browser.find_element_by_xpath(xpaths['buy']).click()
+    if round_position < 0 :
+        self.browser.find_element_by_xpath(xpaths['short']).click()
+    self.browser.find_element_by_xpath(xpaths['symbol']).send_keys(Keys.CONTROL + "a", Keys.DELETE)
+    self.browser.find_element_by_xpath(xpaths['symbol']).send_keys(ticker)
+    self.browser.find_element_by_xpath(xpaths['quantity']).send_keys(Keys.CONTROL + "a", Keys.DELETE)
+    self.browser.find_element_by_xpath(xpaths['quantity']).send_keys(abs(round_position))
+    self.browser.find_element_by_xpath(xpaths['market']).click()
+
+    self.implicit_wait(xpaths['preview_order'])
+    time.sleep(1)
+    element = self.browser.find_element_by_xpath(xpaths['scroll_path'])
+    actions = ActionChains(self.browser)
+    actions.move_to_element(element).perform()
+    try:
+        self.browser.find_element_by_xpath(xpaths['preview_order']).click()
+    except:
+        time.sleep(2)
+        self.browser.find_element_by_xpath(xpaths['preview_order']).click()
+    self.implicit_wait(xpaths['note'])
+    time.sleep(0.5)
+    self.browser.find_element_by_xpath(xpaths['note']).send_keys(Keys.CONTROL + "a", Keys.DELETE)
+    self.browser.find_element_by_xpath(xpaths['note']).send_keys(note)
+
+    self.implicit_wait(xpaths['confirm_order'])
+    try:
+        self.browser.find_element_by_xpath(xpaths['confirm_order']).click()
+    except:
+        time.sleep(4)
+        self.browser.find_element_by_xpath(xpaths['confirm_order']).click()
+    print(i)
+    self.browser.get(self.trade_station)
+    self.stop_page_load('//*[@id="tbSymbol"]')
